@@ -2,6 +2,9 @@ import streamlit as st
 import yt_dlp
 import sqlite3
 from datetime import datetime
+from transformers import pipeline
+from textblob import TextBlob
+import speech_recognition as sr
 
 # Set up SQLite database to store video progress, notes, tasks, and quizzes
 conn = sqlite3.connect('user_data.db')
@@ -18,6 +21,10 @@ c.execute('''CREATE TABLE IF NOT EXISTS reminders
              (user_id TEXT, reminder_time TEXT, message TEXT)''')
 
 conn.commit()
+
+# Load AI models
+summarizer = pipeline("summarization")
+sentiment_analyzer = pipeline("sentiment-analysis")
 
 # Function to fetch video metadata using yt-dlp
 def get_video_details(video_url):
@@ -65,6 +72,26 @@ def get_reminders(user_id):
     c.execute("SELECT reminder_time, message FROM reminders WHERE user_id = ?", (user_id,))
     return c.fetchall()
 
+# Function to analyze sentiment of notes
+def analyze_sentiment(note):
+    result = sentiment_analyzer(note)
+    return result[0]
+
+# Function to summarize video transcript
+def summarize_video_transcript(transcript):
+    return summarizer(transcript, max_length=150, min_length=30, do_sample=False)
+
+# Function to convert audio to text
+def audio_to_text(video_audio):
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(video_audio) as source:
+        audio = recognizer.record(source)
+    try:
+        text = recognizer.recognize_google(audio)
+        return text
+    except sr.UnknownValueError:
+        return "Sorry, the audio could not be understood."
+
 # Function to track the quiz result
 def track_quiz_result(user_id, video_id, correct, total):
     st.write(f"You got {correct} out of {total} correct!")
@@ -96,6 +123,16 @@ if video_url and user_id:
         current_time = st.slider("Set your current time (in seconds):", 0, video_length, value=progress)
         save_progress(video_url, user_id, current_time, user_notes)
         st.success("Progress and notes saved!")
+
+    # Analyze sentiment of notes
+    if st.button("Analyze Sentiment"):
+        sentiment = analyze_sentiment(user_notes)
+        st.write(f"Sentiment: {sentiment['label']} (Score: {sentiment['score']:.2f})")
+
+    # Summarization of notes
+    if st.button("Summarize Notes"):
+        summary = summarize_video_transcript(user_notes)
+        st.write("Summary:", summary[0]['summary_text'])
 
     # To-Do List
     st.subheader("To-Do List")
